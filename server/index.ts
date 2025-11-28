@@ -336,8 +336,9 @@ const vscodeLimiter = rateLimit({
   keyGenerator: (req) => req.ip as string, // Use req.ip with 'trust proxy'
 });
 
-// Apply VSCode rate limiting
+// Apply VSCode rate limiting (both with and without /api prefix)
 app.use('/api/vscode/', vscodeLimiter);
+app.use('/vscode/', vscodeLimiter);
 
 // Rate limiting for node/compute API endpoints
 const nodeLimiter = rateLimit({
@@ -380,6 +381,41 @@ const adminLimiter = rateLimit({
 
 // Apply admin rate limiting
 app.use('/api/admin/', adminLimiter);
+
+// Rate limiting for webhook endpoints (prevent abuse while allowing legitimate traffic)
+const webhookLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 100, // Limit each IP to 100 requests per minute (webhooks can be bursty)
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: 'Too many webhook requests, please try again later',
+  skip: (req) => config.nodeEnv === 'development', // Skip rate limiting in development
+  keyGenerator: (req) => req.ip as string, // Use req.ip with 'trust proxy'
+});
+
+// Apply webhook rate limiting
+app.use('/webhook/', webhookLimiter);
+
+// Rate limiting for static assets and catch-all routes (lenient)
+const staticLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 300, // Limit each IP to 300 requests per minute for static assets
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: 'Too many requests, please try again later',
+  skip: (req) => {
+    // Skip for API routes (they have their own rate limiters)
+    if (req.path.startsWith('/api/') || req.path.startsWith('/webhook/') || req.path.startsWith('/vscode/')) {
+      return true;
+    }
+    // Skip in development
+    return config.nodeEnv === 'development';
+  },
+  keyGenerator: (req) => req.ip as string, // Use req.ip with 'trust proxy'
+});
+
+// Apply static/catch-all rate limiting (must be before catch-all routes)
+app.use(staticLimiter);
 
 // Health check endpoint for ALB
 app.get('/health', (req, res) => {
