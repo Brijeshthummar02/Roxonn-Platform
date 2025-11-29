@@ -409,6 +409,7 @@ export class DatabaseStorage implements IStorage {
             githubRepoFullName: true,
             registeredAt: true,
             isPrivate: true,
+            isActive: true,
             installationId: true,
         }
       });
