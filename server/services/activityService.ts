@@ -33,6 +33,7 @@ export class ActivityService {
    * 1. Reward distributions (multi_currency_bounties)
    * 2. Subscription events
    * 3. Referral conversions
+   * 4. PR/Contribution activities (bounties allocated to user)
    */
   async getRecentActivity(userId: number, limit: number = 10): Promise<ActivityItem[]> {
     const activities: ActivityItem[] = [];
@@ -46,6 +47,9 @@ export class ActivityService {
 
       const referralActivities = await this.getReferralActivities(userId, limit);
       activities.push(...referralActivities);
+
+      const contributionActivities = await this.getContributionActivities(userId, limit);
+      activities.push(...contributionActivities);
 
       activities.sort((a, b) => 
         new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
@@ -236,6 +240,68 @@ export class ActivityService {
       });
     } catch (error: any) {
       log(`Error fetching referral activities: ${error.message}`, 'activity-ERROR');
+      return [];
+    }
+  }
+
+  /**
+   * Get PR/contribution-related activities (bounties allocated to user - PR in progress)
+   * This tracks when a user has been assigned to work on a bounty (PR created/in progress)
+   */
+  private async getContributionActivities(userId: number, limit: number): Promise<ActivityItem[]> {
+    try {
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, userId),
+        columns: { xdcWalletAddress: true }
+      });
+
+      if (!user?.xdcWalletAddress) {
+        return [];
+      }
+
+      const allocatedBounties = await db
+        .select({
+          id: multiCurrencyBounties.id,
+          repoId: multiCurrencyBounties.repoId,
+          issueId: multiCurrencyBounties.issueId,
+          currencyType: multiCurrencyBounties.currencyType,
+          amount: multiCurrencyBounties.amount,
+          status: multiCurrencyBounties.status,
+          createdAt: multiCurrencyBounties.createdAt,
+          updatedAt: multiCurrencyBounties.updatedAt,
+          repoFullName: registeredRepositories.githubRepoFullName
+        })
+        .from(multiCurrencyBounties)
+        .leftJoin(
+          registeredRepositories,
+          eq(multiCurrencyBounties.repoId, registeredRepositories.githubRepoId)
+        )
+        .where(
+          and(
+            eq(multiCurrencyBounties.contributorAddress, user.xdcWalletAddress),
+            eq(multiCurrencyBounties.status, 'allocated')
+          )
+        )
+        .orderBy(desc(multiCurrencyBounties.updatedAt))
+        .limit(limit);
+
+      return allocatedBounties.map(bounty => ({
+        id: `contribution-${bounty.id}`,
+        type: 'contribution' as const,
+        title: 'PR In Progress',
+        description: bounty.repoFullName 
+          ? `Working on bounty for ${bounty.repoFullName}${bounty.issueId ? ` #${bounty.issueId}` : ''}`
+          : `Bounty assigned - PR in progress`,
+        timestamp: bounty.updatedAt?.toISOString() || bounty.createdAt?.toISOString() || new Date().toISOString(),
+        metadata: {
+          amount: bounty.amount,
+          currency: bounty.currencyType as 'XDC' | 'ROXN' | 'USDC',
+          repoName: bounty.repoFullName || undefined,
+          issueId: bounty.issueId || undefined
+        }
+      }));
+    } catch (error: any) {
+      log(`Error fetching contribution activities: ${error.message}`, 'activity-ERROR');
       return [];
     }
   }
