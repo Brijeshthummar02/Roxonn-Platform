@@ -13,6 +13,40 @@ import {
   type CreatePromotionalSubmissionInput,
 } from '../../shared/schema';
 import { log } from '../utils';
+import rateLimit from 'express-rate-limit';
+
+// Custom error class for business logic errors
+class BusinessError extends Error {
+  constructor(message: string, public statusCode: number = 400) {
+    super(message);
+    this.name = 'BusinessError';
+  }
+}
+
+// Rate limiters for promotional bounties endpoints
+const submissionRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Max 10 submissions per 15 minutes
+  message: 'Too many submission requests, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const reviewRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // Max 20 reviews per 15 minutes
+  message: 'Too many review requests, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const createBountyRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20, // Max 20 bounties per hour
+  message: 'Too many bounty creation requests, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 const router = Router();
 
@@ -198,7 +232,7 @@ router.get('/bounties/:id', async (req: Request, res: Response) => {
 });
 
 // Create bounty - pool managers only
-router.post('/bounties', requireAuth, async (req: Request, res: Response) => {
+router.post('/bounties', requireAuth, createBountyRateLimiter, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
     
@@ -447,7 +481,7 @@ router.get('/submissions/:id', requireAuth, async (req: Request, res: Response) 
 });
 
 // Create submission
-router.post('/submissions', requireAuth, async (req: Request, res: Response) => {
+router.post('/submissions', requireAuth, submissionRateLimiter, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user?.id;
     
@@ -457,47 +491,58 @@ router.post('/submissions', requireAuth, async (req: Request, res: Response) => 
     
     const validatedData = createPromotionalSubmissionSchema.parse(req.body);
     
-    const [bounty] = await db
-      .select()
-      .from(promotionalBounties)
-      .where(eq(promotionalBounties.id, validatedData.bountyId))
-      .limit(1);
-    
-    if (!bounty) {
-      return res.status(404).json({ error: 'Bounty not found' });
-    }
-    
-    if (bounty.status !== 'ACTIVE') {
-      return res.status(400).json({ error: 'Bounty is not active' });
-    }
-    
-    if (bounty.expiresAt && new Date(bounty.expiresAt) < new Date()) {
-      return res.status(400).json({ error: 'Bounty has expired' });
-    }
-    
-    if (bounty.maxSubmissions) {
-      const submissionCountResult = await db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(promotionalSubmissions)
-        .where(eq(promotionalSubmissions.bountyId, validatedData.bountyId));
+    // Use transaction with row-level locking to prevent race condition
+    const newSubmission = await db.transaction(async (tx) => {
+      // Lock the bounty row using FOR UPDATE to prevent concurrent submissions
+      const lockedBountyResult = await tx.execute(
+        sql`SELECT * FROM promotional_bounties WHERE id = ${validatedData.bountyId} FOR UPDATE LIMIT 1`
+      );
       
-      const count = submissionCountResult[0]?.count || 0;
-      if (count >= bounty.maxSubmissions) {
-        return res.status(400).json({ error: 'Maximum submissions reached for this bounty' });
+      if (!lockedBountyResult.rows || lockedBountyResult.rows.length === 0) {
+        throw new BusinessError('Bounty not found', 404);
       }
-    }
-    
-    const [newSubmission] = await db.insert(promotionalSubmissions).values({
-      bountyId: validatedData.bountyId,
-      contributorId: userId,
-      proofLinks: validatedData.proofLinks,
-      description: validatedData.description,
-    }).returning();
+      
+      const lockedBounty = lockedBountyResult.rows[0] as any;
+      
+      if (lockedBounty.status !== 'ACTIVE') {
+        throw new BusinessError('Bounty is not active', 400);
+      }
+      
+      if (lockedBounty.expires_at && new Date(lockedBounty.expires_at) < new Date()) {
+        throw new BusinessError('Bounty has expired', 400);
+      }
+      
+      // Check max submissions with locked bounty (within transaction)
+      if (lockedBounty.max_submissions) {
+        const submissionCountResult = await tx
+          .select({ count: sql<number>`count(*)::int` })
+          .from(promotionalSubmissions)
+          .where(eq(promotionalSubmissions.bountyId, validatedData.bountyId));
+        
+        const count = submissionCountResult[0]?.count || 0;
+        if (count >= lockedBounty.max_submissions) {
+          throw new BusinessError('Maximum submissions reached for this bounty', 400);
+        }
+      }
+      
+      // Insert submission within transaction
+      const [submission] = await tx.insert(promotionalSubmissions).values({
+        bountyId: validatedData.bountyId,
+        contributorId: userId,
+        proofLinks: validatedData.proofLinks,
+        description: validatedData.description,
+      }).returning();
+      
+      return submission;
+    });
     
     res.status(201).json(transformSubmission(newSubmission));
   } catch (error: any) {
     if (error instanceof ZodError) {
       return res.status(400).json({ error: 'Validation error', details: error.issues });
+    }
+    if (error instanceof BusinessError) {
+      return res.status(error.statusCode).json({ error: error.message });
     }
     log(`Error creating submission: ${error.message}`, 'error');
     res.status(500).json({ error: error.message });
@@ -505,7 +550,7 @@ router.post('/submissions', requireAuth, async (req: Request, res: Response) => 
 });
 
 // Review submission - pool managers only
-router.patch('/submissions/:id/review', requireAuth, async (req: Request, res: Response) => {
+router.patch('/submissions/:id/review', requireAuth, reviewRateLimiter, async (req: Request, res: Response) => {
   try {
     const submissionId = parseInt(req.params.id, 10);
     if (isNaN(submissionId)) {
