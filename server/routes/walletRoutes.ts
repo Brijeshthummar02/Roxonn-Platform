@@ -10,7 +10,7 @@ import { onrampService } from '../onrampService';
 import { TransactionStatus } from '../../shared/schema';
 import { WalletService } from '../walletService';
 import { transferLimits, DAILY_TRANSFER_LIMIT } from '../transfer-limits';
-import { encryptWithSharedSecret, deriveSharedSecret, SERVER_PUBLIC_KEY_BASE64 } from '../ecdh';
+import { encryptWithSharedSecret, deriveSharedSecret, getServerPublicKey } from '../ecdh';
 import { sendOtpEmail } from '../email';
 import { db } from '../db';
 
@@ -546,7 +546,7 @@ router.post('/export-data', requireAuth, csrfProtection, requireOtp, async (req:
       address: walletData.address,
       cipherText,
       iv,
-      serverPublicKey: SERVER_PUBLIC_KEY_BASE64,
+      serverPublicKey: await getServerPublicKey(),
       networkConfig
     });
   } catch (error: any) {

@@ -4,6 +4,9 @@ import { log } from '../utils';
 
 const router = Router();
 
+// Admin user ID constant - platform admin
+const ADMIN_USER_ID = 1;
+
 // Admin: Get all pending subscription payments
 router.get('/admin/subscription/pending', requireAuth, csrfProtection, async (req, res) => {
   try {
@@ -13,7 +16,7 @@ router.get('/admin/subscription/pending', requireAuth, csrfProtection, async (re
     }
 
     // Check if user is admin (user ID 1 is the platform admin)
-    if (user.id !== 1) {
+    if (user.id !== ADMIN_USER_ID) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -61,7 +64,7 @@ router.post('/admin/subscription/verify/:orderId', requireAuth, csrfProtection, 
     }
 
     // Check admin access (user ID 1 is the platform admin)
-    if (user.id !== 1) {
+    if (user.id !== ADMIN_USER_ID) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -100,7 +103,7 @@ router.get('/admin/onramp/order/:orderId', requireAuth, csrfProtection, async (r
     }
 
     // Check admin access (user ID 1 is the platform admin)
-    if (user.id !== 1) {
+    if (user.id !== ADMIN_USER_ID) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -139,7 +142,7 @@ router.get('/admin/verification-log', requireAuth, csrfProtection, async (req, r
     }
 
     // Check admin access (user ID 1 is the platform admin)
-    if (user.id !== 1) {
+    if (user.id !== ADMIN_USER_ID) {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
