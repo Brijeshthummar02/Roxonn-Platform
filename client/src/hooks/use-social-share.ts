@@ -53,7 +53,7 @@ export function useSocialShare() {
     window.open(
       `https://twitter.com/intent/tweet?text=${text}`,
       '_blank',
-      'width=550,height=420'
+      'noopener,noreferrer,width=550,height=420'
     );
     toast({
       title: 'Opening Twitter',
@@ -66,11 +66,10 @@ export function useSocialShare() {
    */
   const shareOnLinkedIn = (options: ShareOptions) => {
     const url = encodeURIComponent('https://app.roxonn.com');
-    const summary = encodeURIComponent(generateShareMessage(options, 'linkedin'));
     window.open(
-      `https://www.linkedin.com/sharing/share-offsite/?url=${url}&summary=${summary}`,
+      `https://www.linkedin.com/sharing/share-offsite/?url=${url}`,
       '_blank',
-      'width=550,height=520'
+      'noopener,noreferrer,width=550,height=520'
     );
     toast({
       title: 'Opening LinkedIn',
@@ -105,8 +104,11 @@ export function useSocialShare() {
    */
   const viewOnExplorer = (transactionHash?: string) => {
     if (transactionHash) {
-      const explorerUrl = `https://xdcscan.com/tx/${transactionHash}`;
-      window.open(explorerUrl, '_blank');
+      const normalizedHash = transactionHash.startsWith('xdc') 
+        ? '0x' + transactionHash.slice(3) 
+        : transactionHash;
+      const explorerUrl = `https://xdcscan.io/tx/${normalizedHash}`;
+      window.open(explorerUrl, '_blank', 'noopener,noreferrer');
     }
   };
 
@@ -127,6 +129,7 @@ export function useSocialShare() {
       return true;
     } catch (error) {
       // User cancelled or share failed
+      console.debug('Native share failed:', error);
       return false;
     }
   };

@@ -2,14 +2,11 @@ import { useState, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './ui/dialog';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { Card } from './ui/card';
 import { useSocialShare } from '../hooks/use-social-share';
 import { 
   Twitter, 
   Linkedin, 
   Copy, 
-  Download, 
-  Share2, 
   Coins, 
   Award, 
   ExternalLink,

@@ -325,7 +325,15 @@ export default function DashboardPage() {
     issueId: activity.metadata?.issueId,
   })) || [];
 
-  const handleShareActivity = (activity: any) => {
+  interface ActivityData {
+    amount?: string;
+    currency?: 'XDC' | 'ROXN' | 'USDC';
+    repoName?: string;
+    issueId?: number;
+    txHash?: string;
+  }
+
+  const handleShareActivity = (activity: ActivityData) => {
     openShareModal({
       amount: activity.amount || '0',
       currency: (activity.currency || 'ROXN') as 'XDC' | 'ROXN' | 'USDC',
